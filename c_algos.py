@@ -33,30 +33,38 @@ class algs:
 
         return reward
 
+    # The ThompsonSample function generates Thompson samples for each arm based on empirical means and number of pulls.
     def ThompsonSample(self, empiricalMean, numPulls, beta):
         numArms = self.numArms
         sampleArm = np.zeros(numArms)
 
-        var_ = beta/(numPulls + 1.)
+        # Compute the standard deviation and variance for the normal distribution
+        var_ = beta / (numPulls + 1.0)
         std_ = np.sqrt(var_)
 
         mean_ = empiricalMean
 
+        # Generate samples from the normal distribution with the calculated mean and standard deviation
         sampleArm = np.random.normal(mean_, std_)
 
         return sampleArm
 
+    # The UCB function implements the Upper Confidence Bound algorithm for multi-armed bandits.
     def UCB(self, num_iterations, T):
-
         numArms = self.numArms
         optArm = self.optArm
         true_means_test = self.true_means_test
         tables = self.tables
 
-        B = [5.] * numArms
+        # Initialize the exploration parameter B for all arms
+        B = [5.0] * numArms
 
+        # Initialize the average regret for UCB
         avg_ucb_regret = np.zeros((num_iterations, T))
+
+        # Iterate through the number of iterations
         for iteration in tqdm(range(num_iterations)):
+            # Initialize variables for UCB algorithm
             UCB_pulls = np.zeros(numArms)
             UCB_index = np.zeros(numArms)
             UCB_empReward = np.zeros(numArms)
@@ -67,77 +75,87 @@ class algs:
 
             ucb_regret = np.zeros(T)
             for t in range(T):
+                # Pull each arm once at the beginning
                 if t < numArms:
                     UCB_kt = t
                 else:
+                    # Select the arm with the highest UCB index
                     UCB_kt = np.argmax(UCB_index)
 
+                # Generate the reward for the selected arm
                 UCB_reward = self.generate_sample(UCB_kt)
 
+                # Update the number of pulls and the sum of rewards for the selected arm
                 UCB_pulls[UCB_kt] = UCB_pulls[UCB_kt] + 1
+                UCB_sumReward[UCB_kt] = UCB_sumReward[UCB_kt] + float(UCB_reward.iloc[0])
+                UCB_empReward[UCB_kt] = UCB_sumReward[UCB_kt] / float(UCB_pulls[UCB_kt])
 
-                UCB_sumReward[UCB_kt] = UCB_sumReward[UCB_kt] + UCB_reward
-                UCB_empReward[UCB_kt] = UCB_sumReward[UCB_kt]/float(UCB_pulls[UCB_kt])
-
+                # Update the UCB index for all arms that have been pulled at least once
                 for k in range(numArms):
                     if UCB_pulls[k] > 0:
-                        UCB_index[k] = UCB_empReward[k] + B[k]*np.sqrt(2. * np.log(t+1)/ UCB_pulls[k])
+                        UCB_index[k] = UCB_empReward[k] + B[k] * np.sqrt(2.0 * np.log(t + 1) / UCB_pulls[k])
 
+                # Calculate the regret for the current time step
                 if t == 0:
                     ucb_regret[t] = true_means_test[optArm] - true_means_test[UCB_kt]
                 else:
-                    ucb_regret[t] = ucb_regret[t-1] + true_means_test[optArm] - true_means_test[UCB_kt]
+                    ucb_regret[t] = ucb_regret[t - 1] + true_means_test[optArm] - true_means_test[UCB_kt]
 
+            # Update the average regret for the current iteration
             avg_ucb_regret[iteration, :] = ucb_regret
 
         return avg_ucb_regret
 
+    # The TS function implements the Thompson Sampling algorithm for multi-armed bandits.
     def TS(self, num_iterations, T):
-
         numArms = self.numArms
         optArm = self.optArm
         true_means_test = self.true_means_test
         tables = self.tables
 
-        beta = 4.
+        beta = 4.0
 
+        # Initialize the average regret for Thompson Sampling
         avg_ts_regret = np.zeros((num_iterations, T))
+
+        # Iterate through the number of iterations
         for iteration in tqdm(range(num_iterations)):
             numPulls = np.zeros(numArms)
             empReward = np.zeros(numArms)
 
             ts_regret = np.zeros(T)
             for t in range(T):
-                #Initialise by pulling each arm once
+                # Pull each arm once at the beginning
                 if t < numArms:
                     numPulls[t] += 1
                     assert numPulls[t] == 1
 
                     reward = self.generate_sample(t)
-                    empReward[t] = reward
+                    empReward[t] = float(reward.iloc[0])
 
                     if t != 0:
-                        ts_regret[t] = ts_regret[t-1] + true_means_test[optArm] - true_means_test[t]
+                        ts_regret[t] = ts_regret[t - 1] + true_means_test[optArm] - true_means_test[t]
 
                     continue
 
-                thompson = self.ThompsonSample(empReward,numPulls,beta)
+                # Generate Thompson samples for each arm and select the arm with the highest sample
+                thompson = self.ThompsonSample(empReward, numPulls, beta)
                 next_arm = np.argmax(thompson)
 
-                #Generate reward, update pulls and empirical reward
-                reward = self.generate_sample( next_arm )
-                empReward[next_arm] = (empReward[next_arm]*numPulls[next_arm] + reward)/(numPulls[next_arm] + 1)
+                # Generate reward, update pulls and empirical reward
+                reward = self.generate_sample(next_arm)
+                empReward[next_arm] = (empReward[next_arm] * numPulls[next_arm] + float(reward.iloc[0])) / (numPulls[next_arm] + 1)
                 numPulls[next_arm] = numPulls[next_arm] + 1
 
-                #Evaluate regret
-                ts_regret[t] = ts_regret[t-1] + true_means_test[optArm] - true_means_test[next_arm]
+                # Evaluate regret
+                ts_regret[t] = ts_regret[t - 1] + true_means_test[optArm] - true_means_test[next_arm]
 
+            # Update the average regret for the current iteration
             avg_ts_regret[iteration, :] = ts_regret
 
         return avg_ts_regret
 
     def C_UCB(self, num_iterations, T):
-
         numArms = self.numArms
         optArm = self.optArm
         true_means_test = self.true_means_test
@@ -145,27 +163,29 @@ class algs:
 
         B = [5.] * numArms
 
+        # Initialize regret array
         avg_cucb_regret = np.zeros((num_iterations, T))
+
+        # Run the algorithm for each iteration
         for iteration in tqdm(range(num_iterations)):
             pulls = np.zeros(numArms)
             empReward = np.zeros(numArms)
             sumReward = np.zeros(numArms)
-            Index = dict(zip(range(numArms), [np.inf]*numArms))
+            Index = dict(zip(range(numArms), [np.inf] * numArms))
 
             empReward[:] = np.inf
 
-            empPseudoReward = np.zeros((numArms, numArms)) #(i,j) empPseudoReward of arm $i$ wrt arm $j$.
+            # Initialize pseudo-reward arrays
+            empPseudoReward = np.zeros((numArms, numArms))
             sumPseudoReward = np.zeros((numArms, numArms))
-
-            empPseudoReward[:,:] = np.inf
-
+            empPseudoReward[:, :] = np.inf
 
             cucb_regret = np.zeros(T)
             for t in range(T):
+                # Identify arms in the set \ell
+                bool_ell = pulls >= (float(t - 1) / numArms)
 
-                #add to set \ell for arms with pulls >t/K
-                bool_ell = pulls >= (float(t - 1)/numArms)
-
+                # Find the maximum and second maximum empirical rewards in the set \ell
                 max_mu_hat = np.max(empReward[bool_ell])
 
                 if empReward[bool_ell].shape[0] == 1:
@@ -176,73 +196,77 @@ class algs:
                     secmax_mu_hat = temp[1]
                 argmax_mu_hat = np.where(empReward == max_mu_hat)[0][0]
 
-                #Set of competitive arms - update through the run
+                # Identify the competitive set of arms
                 min_phi = np.min(empPseudoReward[:, bool_ell], axis=1)
 
                 comp_set = set()
-                #Adding back the argmax arm
+                # Add the argmax arm
                 comp_set.add(argmax_mu_hat)
 
+                # Add other competitive arms
                 for arm in range(numArms):
                     if arm != argmax_mu_hat and min_phi[arm] >= max_mu_hat:
                         comp_set.add(arm)
                     elif arm == argmax_mu_hat and min_phi[arm] >= secmax_mu_hat:
                         comp_set.add(arm)
 
+                # Select the next arm to pull
                 if t < numArms:
-                    k_t = t %numArms
-                elif len(comp_set)==0:
-                    #UCB for empty comp set
+                    k_t = t % numArms
+                elif len(comp_set) == 0:
+                    # UCB for an empty competitive set
                     k_t = max(Index.items(), key=operator.itemgetter(1))[0]
                 else:
                     comp_Index = {ind: Index[ind] for ind in comp_set}
                     k_t = max(comp_Index.items(), key=operator.itemgetter(1))[0]
 
+                # Update the number of pulls and rewards
                 pulls[k_t] = pulls[k_t] + 1
-
                 reward = self.generate_sample(k_t)
 
-                #Update \mu_{k_t}
-                sumReward[k_t] = sumReward[k_t] + reward
-                empReward[k_t] = sumReward[k_t]/float(pulls[k_t])
+                sumReward[k_t] = sumReward[k_t] + float(reward.iloc[0])
+                empReward[k_t] = sumReward[k_t] / float(pulls[k_t])
 
-                #Pseudo-reward updates
-                pseudoRewards = tables[k_t][reward-1, :] #(zero-indexed)
-
+                # Update pseudo-rewards
+                pseudoRewards = tables[k_t][reward - 1, :]
                 sumPseudoReward[:, k_t] = sumPseudoReward[:, k_t] + pseudoRewards
                 empPseudoReward[:, k_t] = np.divide(sumPseudoReward[:, k_t], float(pulls[k_t]))
 
-                #Diagonal elements of pseudorewards
+                # Update diagonal elements of pseudo-rewards
                 empPseudoReward[np.arange(numArms), np.arange(numArms)] = empReward
 
-                #Update UCB+LCB indices: Using pseduorewards
+                # Update UCB+LCB indices using pseudo-rewards
                 for k in range(numArms):
-                    if(pulls[k] > 0):
-                        #UCB index
-                        Index[k] = empReward[k] + B[k]*np.sqrt(2. * np.log(t+1)/pulls[k])
+                    if pulls[k] > 0:
+                        # UCB index
+                        Index[k] = empReward[k] + B[k] * np.sqrt(2. * np.log(t + 1) / pulls[k])
 
-                #Regret calculation
+                # Calculate regret
                 if t == 0:
                     cucb_regret[t] = true_means_test[optArm] - true_means_test[k_t]
                 else:
-                    cucb_regret[t] = cucb_regret[t-1] + true_means_test[optArm] - true_means_test[k_t]
+                    cucb_regret[t] = cucb_regret[t - 1] + true_means_test[optArm] - true_means_test[k_t]
 
+            # Store regret for each iteration
             avg_cucb_regret[iteration, :] = cucb_regret
 
         return avg_cucb_regret
 
     def C_TS(self, num_iterations, T):
-
+        
         numArms = self.numArms
         optArm = self.optArm
         true_means_test = self.true_means_test
         tables = self.tables
-
+        
         B = [5.] * numArms
 
+        # Initialize regret array
         avg_tsc_regret = np.zeros((num_iterations, T))
 
-        beta = 4. #since sigma was taken as 2
+        beta = 4.  # since sigma was taken as 2
+
+        # Run the algorithm for each iteration
         for iteration in tqdm(range(num_iterations)):
             TSC_pulls = np.zeros(numArms)
 
@@ -251,19 +275,19 @@ class algs:
 
             TSC_empReward[:] = np.inf
 
-            TSC_empPseudoReward = np.zeros((numArms, numArms)) #(i,j) empPseudoReward of arm $i$ wrt arm $j$.
+            # Initialize pseudo-reward arrays
+            TSC_empPseudoReward = np.zeros((numArms, numArms))
             TSC_sumPseudoReward = np.zeros((numArms, numArms))
 
-            TSC_empPseudoReward[:,:] = np.inf
-
+            TSC_empPseudoReward[:, :] = np.inf
 
             tsc_regret = np.zeros(T)
 
             for t in range(T):
+                # Identify arms in the set \ell
+                bool_ell = TSC_pulls >= (float(t - 1) / numArms)
 
-                #add to set \ell for arms with pulls >t/K
-                bool_ell = TSC_pulls >= (float(t - 1)/numArms)
-
+                # Find the maximum and second maximum empirical rewards in the set \ell
                 max_mu_hat = np.max(TSC_empReward[bool_ell])
 
                 if TSC_empReward[bool_ell].shape[0] == 1:
@@ -274,13 +298,14 @@ class algs:
                     secmax_mu_hat = temp[1]
                 argmax_mu_hat = np.where(TSC_empReward == max_mu_hat)[0][0]
 
-                #Set of competitive arms - update through the run
+                # Identify the competitive set of arms
                 min_phi = np.min(TSC_empPseudoReward[:, bool_ell], axis=1)
 
                 comp_set = set()
-                #Adding the argmax arm
+                # Add the argmax arm
                 comp_set.add(argmax_mu_hat)
 
+                # Add other competitive arms
                 for arm in range(numArms):
                     if arm != argmax_mu_hat and min_phi[arm] >= max_mu_hat:
                         comp_set.add(arm)
@@ -288,33 +313,35 @@ class algs:
                         comp_set.add(arm)
 
                 if t < numArms:
-                    k_t = t #%numArms
+                    k_t = t  # % numArms
                 else:
                     # Thompson Sampling
                     thompson = self.ThompsonSample(TSC_empReward, TSC_pulls, beta)
                     comp_values = {ind: thompson[ind] for ind in comp_set}
                     k_t = max(comp_values.items(), key=operator.itemgetter(1))[0]
 
+                # Update the number of pulls and rewards
                 TSC_pulls[k_t] = TSC_pulls[k_t] + 1
 
                 reward = self.generate_sample(k_t)
 
                 # Update \mu_{k_t}
-                TSC_sumReward[k_t] = TSC_sumReward[k_t] + reward
-                TSC_empReward[k_t] = TSC_sumReward[k_t]/float(TSC_pulls[k_t])
+                TSC_sumReward[k_t] = TSC_sumReward[k_t] + float(reward.iloc[0])
+                TSC_empReward[k_t] = TSC_sumReward[k_t] / float(TSC_pulls[k_t])
 
                 # Pseudo-reward updates
-                TSC_pseudoRewards = tables[k_t][reward-1, :] #(zero-indexed)
+                TSC_pseudoRewards = tables[k_t][reward - 1, :]  # (zero-indexed)
 
                 TSC_sumPseudoReward[:, k_t] = TSC_sumPseudoReward[:, k_t] + TSC_pseudoRewards
                 TSC_empPseudoReward[:, k_t] = np.divide(TSC_sumPseudoReward[:, k_t], float(TSC_pulls[k_t]))
-
-                # Regret calculation
+                
+                # Calculate regret
                 if t == 0:
                     tsc_regret[t] = true_means_test[optArm] - true_means_test[k_t]
                 else:
-                    tsc_regret[t] = tsc_regret[t-1] + true_means_test[optArm] - true_means_test[k_t]
+                    tsc_regret[t] = tsc_regret[t - 1] + true_means_test[optArm] - true_means_test[k_t]
 
+            # Store regret for each iteration
             avg_tsc_regret[iteration, :] = tsc_regret
 
         return avg_tsc_regret

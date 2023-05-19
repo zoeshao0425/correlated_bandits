@@ -443,7 +443,7 @@ class algs:
         plt.ylabel('Cumulative Regret')
         # Save
         pathlib.Path('data/plots/').mkdir(parents=False, exist_ok=True)
-        plt.savefig(f'data/plots/{self.exp_name}_p{self.p:.2f}_pad{self.padval:.2f}.pdf')
+        plt.savefig(f'data/plots/{self.exp_name}_p{self.p:.2f}_pad{self.padval:.2f}.png')
 
 
 def parse_arguments():

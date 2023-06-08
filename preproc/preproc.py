@@ -92,6 +92,7 @@ def genre_train_test_split(train_test_ratio=0.5):
               'War', 'Western']
 
     data = pd.read_pickle('genres/data_with_id')
+    print(data)
 
     # Get user counts and sort them in reverse
     user_counts = data['UserID'].value_counts().to_dict()
@@ -147,11 +148,13 @@ def genre_data_process():
 
     # Test data true means
     true_means = np.zeros(18)
+    true_costs = np.random.uniform(0, 1, size=18) # assign a random cost for each genre
     for genre in range(18):
         d = test_data_id[test_data_id['genre_col'] == genre]
         true_means[genre] = np.mean(d['Rating'])
 
     pickle.dump(true_means, open('genres/true_means_test', 'wb'))
+    pickle.dump(true_costs, open('genres/true_costs', 'wb'))
 
 
 # Prepare dataset to recommend best movie
@@ -221,13 +224,15 @@ def movie_data_process():
 
     pickle.dump(movie_tables, open('movies/movie_tables_train.pkl', 'wb'))
 
-    # Test data true means
+    # Test data true means and costs
     true_means = np.zeros(50)
+    true_costs = np.random.uniform(0, 1, size=50) # assign a random cost for each movie
     for movie in range(50):
         d = test_data[test_data['movie_col'] == movie]
         true_means[movie] = np.mean(d['Rating'])
 
     pickle.dump(true_means, open('movies/true_means_test', 'wb'))
+    pickle.dump(true_costs, open('movies/true_costs', 'wb'))
 
 
 def book_train_test_split(train_test_ratio=0.5):

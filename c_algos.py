@@ -22,9 +22,11 @@ class algs:
         self.tables = pd.read_pickle(f'preproc/{self.exp_name}s/{self.exp_name}_tables_train.pkl')
         self.test_data = pd.read_pickle(f'preproc/{self.exp_name}s/test_data_usercount')
         self.true_means_test = pd.read_pickle(f'preproc/{self.exp_name}s/true_means_test')
+        self.true_costs= pd.read_pickle(f'preproc/{self.exp_name}s/true_costs')
 
         self.numArms = len(self.tables.keys())
-        self.optArm = np.argmax(self.true_means_test)
+        self.optArmReward = np.argmax(self.true_means_test)
+        self.optArmCost = np.argmin(self.true_costs)
 
     def generate_sample(self, arm):
 
@@ -52,8 +54,10 @@ class algs:
     # The UCB function implements the Upper Confidence Bound algorithm for multi-armed bandits.
     def UCB(self, num_iterations, T):
         numArms = self.numArms
-        optArm = self.optArm
+        optArmReward = self.optArmReward
+        optArmCost = self.optArmCost
         true_means_test = self.true_means_test
+        true_costs = self.true_costs
         tables = self.tables
 
         # Initialize the exploration parameter B for all arms
@@ -74,6 +78,8 @@ class algs:
             UCB_empReward[:] = np.inf
 
             ucb_regret = np.zeros(T)
+            ucb_quality_regret = np.zeros(T)
+            ucb_cost_regret = np.zeros(T)
             for t in range(T):
                 # Pull each arm once at the beginning
                 if t < numArms:
@@ -97,20 +103,28 @@ class algs:
 
                 # Calculate the regret for the current time step
                 if t == 0:
-                    ucb_regret[t] = true_means_test[optArm] - true_means_test[UCB_kt]
+                    ucb_quality_regret[t] = true_means_test[optArmReward] - true_means_test[UCB_kt]
                 else:
-                    ucb_regret[t] = ucb_regret[t - 1] + true_means_test[optArm] - true_means_test[UCB_kt]
+                    ucb_quality_regret[t] = ucb_quality_regret[t - 1] + true_means_test[optArmReward] - true_means_test[UCB_kt]
+                    
+                # Calculate cost regret
+                if t == 0:
+                    ucb_cost_regret[t] = true_costs[UCB_kt] - true_costs[optArmCost]
+                else:
+                    ucb_cost_regret[t] = ucb_cost_regret[t - 1] + true_costs[UCB_kt] - true_costs[optArmCost]
 
             # Update the average regret for the current iteration
-            avg_ucb_regret[iteration, :] = ucb_regret
+            avg_ucb_regret[iteration, :] = ucb_cost_regret
 
         return avg_ucb_regret
 
     # The TS function implements the Thompson Sampling algorithm for multi-armed bandits.
     def TS(self, num_iterations, T):
         numArms = self.numArms
-        optArm = self.optArm
+        optArmReward = self.optArmReward
+        optArmCost = self.optArmCost
         true_means_test = self.true_means_test
+        true_costs = self.true_costs
         tables = self.tables
 
         beta = 4.0
@@ -123,7 +137,9 @@ class algs:
             numPulls = np.zeros(numArms)
             empReward = np.zeros(numArms)
 
-            ts_regret = np.zeros(T)
+            ts_quality_regret = np.zeros(T)
+            ts_cost_regret = np.zeros(T)
+            
             for t in range(T):
                 # Pull each arm once at the beginning
                 if t < numArms:
@@ -134,7 +150,8 @@ class algs:
                     empReward[t] = float(reward.iloc[0])
 
                     if t != 0:
-                        ts_regret[t] = ts_regret[t - 1] + true_means_test[optArm] - true_means_test[t]
+                        ts_quality_regret[t] = ts_quality_regret[t - 1] + true_means_test[optArmReward] - true_means_test[t]
+                        ts_cost_regret[t] = ts_cost_regret[t - 1] + true_costs[t] - true_costs[optArmCost]
 
                     continue
 
@@ -148,17 +165,20 @@ class algs:
                 numPulls[next_arm] = numPulls[next_arm] + 1
 
                 # Evaluate regret
-                ts_regret[t] = ts_regret[t - 1] + true_means_test[optArm] - true_means_test[next_arm]
+                ts_quality_regret[t] = ts_quality_regret[t - 1] + true_means_test[optArmReward] - true_means_test[next_arm]
+                ts_cost_regret[t] = ts_cost_regret[t - 1] + true_costs[next_arm] - true_costs[optArmCost]
 
             # Update the average regret for the current iteration
-            avg_ts_regret[iteration, :] = ts_regret
+            avg_ts_regret[iteration, :] = ts_cost_regret
 
         return avg_ts_regret
 
     def C_UCB(self, num_iterations, T):
         numArms = self.numArms
-        optArm = self.optArm
+        optArmReward = self.optArmReward
+        optArmCost = self.optArmCost
         true_means_test = self.true_means_test
+        true_costs = self.true_costs
         tables = self.tables
 
         B = [5.] * numArms
@@ -180,7 +200,8 @@ class algs:
             sumPseudoReward = np.zeros((numArms, numArms))
             empPseudoReward[:, :] = np.inf
 
-            cucb_regret = np.zeros(T)
+            cucb_cost_regret = np.zeros(T)
+            cucb_quality_regret = np.zeros(T)
             for t in range(T):
                 # Identify arms in the set \ell
                 bool_ell = pulls >= (float(t - 1) / numArms)
@@ -243,20 +264,27 @@ class algs:
 
                 # Calculate regret
                 if t == 0:
-                    cucb_regret[t] = true_means_test[optArm] - true_means_test[k_t]
+                    cucb_quality_regret[t] = true_means_test[optArmReward] - true_means_test[k_t]
                 else:
-                    cucb_regret[t] = cucb_regret[t - 1] + true_means_test[optArm] - true_means_test[k_t]
+                    cucb_quality_regret[t] = cucb_quality_regret[t - 1] + true_means_test[optArmReward] - true_means_test[k_t]
+                    
+                # Calculate quality regret
+                if t == 0:
+                    cucb_cost_regret[t] = true_costs[k_t] - true_costs[optArmCost]
+                else:
+                    cucb_cost_regret[t] = cucb_cost_regret[t - 1] + true_costs[k_t] - true_costs[optArmCost]
 
             # Store regret for each iteration
-            avg_cucb_regret[iteration, :] = cucb_regret
+            avg_cucb_regret[iteration, :] = cucb_cost_regret
 
         return avg_cucb_regret
 
     def C_TS(self, num_iterations, T):
-        
         numArms = self.numArms
-        optArm = self.optArm
+        optArmReward = self.optArmReward
+        optArmCost = self.optArmCost
         true_means_test = self.true_means_test
+        true_costs = self.true_costs
         tables = self.tables
         
         B = [5.] * numArms
@@ -281,7 +309,8 @@ class algs:
 
             TSC_empPseudoReward[:, :] = np.inf
 
-            tsc_regret = np.zeros(T)
+            tsc_cost_regret = np.zeros(T)
+            tsc_quality_regret = np.zeros(T)
 
             for t in range(T):
                 # Identify arms in the set \ell
@@ -334,17 +363,143 @@ class algs:
 
                 TSC_sumPseudoReward[:, k_t] = TSC_sumPseudoReward[:, k_t] + TSC_pseudoRewards
                 TSC_empPseudoReward[:, k_t] = np.divide(TSC_sumPseudoReward[:, k_t], float(TSC_pulls[k_t]))
-                
-                # Calculate regret
+                    
+                # Calculate cost regret
                 if t == 0:
-                    tsc_regret[t] = true_means_test[optArm] - true_means_test[k_t]
+                    tsc_cost_regret[t] = true_costs[k_t] - true_costs[optArmCost]
                 else:
-                    tsc_regret[t] = tsc_regret[t - 1] + true_means_test[optArm] - true_means_test[k_t]
+                    tsc_cost_regret[t] = tsc_cost_regret[t - 1] + true_costs[k_t] - true_costs[optArmCost]
+
+                # Calculate quality regret
+                if t == 0:
+                    tsc_quality_regret[t] = true_means_test[optArmReward] - true_means_test[k_t]
+                else:
+                    tsc_quality_regret[t] = tsc_quality_regret[t - 1] + true_means_test[optArmReward] - true_means_test[k_t]
+
 
             # Store regret for each iteration
-            avg_tsc_regret[iteration, :] = tsc_regret
+            avg_tsc_regret[iteration, :] = tsc_cost_regret
 
         return avg_tsc_regret
+    
+    def CS_ETC(self, num_iterations, T, tau=10, alpha=0.1):
+        numArms = self.numArms
+        optArmReward = self.optArmReward
+        optArmCost = self.optArmCost
+        true_means_test = self.true_means_test
+        true_costs = self.true_costs
+
+        costs_regret = np.zeros((num_iterations, T))
+
+        for iteration in range(num_iterations):
+            mu_hat = np.zeros(numArms)
+            mu_ucb = np.zeros(numArms)
+            mu_lcb = np.zeros(numArms)
+            T_i = np.zeros(numArms)
+            rewards = np.zeros((numArms, tau))
+            costs = np.zeros(T)
+
+            for t in range(T):
+                if t < numArms * tau:  # pure exploration phase
+                    i = t % numArms
+                    rewards[i, int(T_i[i] % tau)] = self.generate_sample(i)
+                    T_i[i] += 1
+                    costs[t] = true_costs[i]
+                else:  # UCB phase
+                    for i in range(numArms):
+                        mu_hat[i] = np.sum(rewards[i]) / T_i[i]
+                        beta = np.sqrt((2 * np.log(T)) / T_i[i])
+                        mu_ucb[i] = min(mu_hat[i] + beta, 1)
+                        mu_lcb[i] = max(mu_hat[i] - beta, 0)
+                    m_t = np.argmax(mu_lcb)
+                    feasible_set = [i for i in range(numArms) if mu_ucb[i] >= (1 - alpha) * mu_lcb[m_t]]
+                    i = min(feasible_set, key=lambda x: true_costs[x])
+                    rewards[i, int(T_i[i] % tau)] = self.generate_sample(i)
+                    T_i[i] += 1
+                    costs[t] = true_costs[i]
+
+            costs_regret[iteration, :] = np.cumsum(costs - np.min(true_costs))
+
+        return costs_regret
+    
+    def CS_TS(self, num_iterations, T, alpha=0.1):
+        numArms = self.numArms
+        optArmReward = self.optArmReward
+        optArmCost = self.optArmCost
+        true_means_test = self.true_means_test
+        true_costs = self.true_costs
+
+        costs_regret = np.zeros((num_iterations, T))
+
+        for iteration in range(num_iterations):
+            mu_score = np.zeros(numArms)
+            T_i = np.zeros(numArms)
+            successes = np.zeros(numArms)
+            failures = np.zeros(numArms)
+            costs = np.zeros(T)
+
+            for t in range(T):
+                if t < numArms:  # play each arm once
+                    i = t
+                    reward = self.generate_sample(i)
+                    successes[i] += reward
+                    failures[i] += 1 - reward
+                    T_i[i] += 1
+                    costs[t] = true_costs[i]
+                else:
+                    for i in range(numArms):
+                        mu_score[i] = np.random.beta(successes[i] + 1, failures[i] + 1)
+                    m_t = np.argmax(mu_score)
+                    feasible_set = [i for i in range(numArms) if mu_score[i] - (1 - alpha) * mu_score[m_t] >= 0]
+                    i = min(feasible_set, key=lambda x: true_costs[x])
+                    reward = self.generate_sample(i)
+                    successes[i] += reward
+                    failures[i] += 1 - reward
+                    T_i[i] += 1
+                    costs[t] = true_costs[i]
+
+            costs_regret[iteration, :] = np.cumsum(costs - np.min(true_costs))
+
+        return costs_regret
+    
+    def CS_UCB(self, num_iterations, T, alpha=0.1):
+        numArms = self.numArms
+        optArmReward = self.optArmReward
+        optArmCost = self.optArmCost
+        true_means_test = self.true_means_test
+        true_costs = self.true_costs
+
+        costs_regret = np.zeros((num_iterations, T))
+
+        for iteration in range(num_iterations):
+            mu_score = np.zeros(numArms)
+            T_i = np.zeros(numArms)
+            rewards = np.zeros((T, numArms))
+            costs = np.zeros(T)
+
+            for t in range(T):
+                if t < numArms:  # play each arm once
+                    i = t
+                    reward = self.generate_sample(i)
+                    rewards[t, i] = reward
+                    T_i[i] += 1
+                    costs[t] = true_costs[i]
+                else:
+                    for i in range(numArms):
+                        mu_score[i] = np.sum(rewards[:t, i]) / T_i[i]
+                        beta = np.sqrt((2 * np.log(T)) / T_i[i])
+                        mu_score[i] = min(mu_score[i] + beta, 1)
+                    m_t = np.argmax(mu_score)
+                    feasible_set = [i for i in range(numArms) if mu_score[i] - (1 - alpha) * mu_score[m_t] >= 0]
+                    i = min(feasible_set, key=lambda x: true_costs[x])
+                    reward = self.generate_sample(i)
+                    rewards[t, i] = reward
+                    T_i[i] += 1
+                    costs[t] = true_costs[i]
+
+            costs_regret[iteration, :] = np.cumsum(costs - np.min(true_costs))
+
+        return costs_regret
 
     def run(self, num_iterations=20, T=5000):
 
@@ -352,18 +507,27 @@ class algs:
         avg_ts_regret = self.TS(num_iterations, T)
         avg_cucb_regret = self.C_UCB(num_iterations, T)
         avg_cts_regret = self.C_TS(num_iterations, T)
+        avg_csetc_regret = self.CS_ETC(num_iterations, T)
+        avg_csucb_regret = self.CS_UCB(num_iterations, T)
+        avg_csts_regret = self.CS_TS(num_iterations, T)
 
         # mean cumulative regret
         self.plot_av_ucb = np.mean(avg_ucb_regret, axis=0)
         self.plot_av_ts = np.mean(avg_ts_regret, axis=0)
         self.plot_av_cucb = np.mean(avg_cucb_regret, axis=0)
         self.plot_av_cts = np.mean(avg_cts_regret, axis=0)
+        self.plot_av_csetc = np.mean(avg_csetc_regret, axis=0)
+        self.plot_av_csucb = np.mean(avg_csucb_regret, axis=0)
+        self.plot_av_csts = np.mean(avg_csts_regret, axis=0)
 
         # std dev over runs
         self.plot_std_ucb = np.sqrt(np.var(avg_ucb_regret, axis=0))
         self.plot_std_ts = np.sqrt(np.var(avg_ts_regret, axis=0))
         self.plot_std_cucb = np.sqrt(np.var(avg_cucb_regret, axis=0))
         self.plot_std_cts = np.sqrt(np.var(avg_cts_regret, axis=0))
+        self.plot_std_csetc = np.sqrt(np.var(avg_csetc_regret, axis=0))
+        self.plot_std_csucb = np.sqrt(np.var(avg_csucb_regret, axis=0))
+        self.plot_std_csts = np.sqrt(np.var(avg_csts_regret, axis=0))
 
         self.save_data()
 
@@ -412,7 +576,7 @@ class algs:
             self.tables = book_tables
 
     def save_data(self):
-        algorithms = ['ucb', 'ts', 'cucb', 'cts']
+        algorithms = ['ucb', 'ts', 'cucb', 'cts', 'csetc', 'csucb', 'csts']
         pathlib.Path(f'plot_arrays/{self.exp_name}s/').mkdir(parents=False, exist_ok=True)
         for alg in algorithms:
             np.save(f'plot_arrays/{self.exp_name}s/plot_av_{alg}_p{self.p:.2f}_pad{self.padval:.2f}',
@@ -427,6 +591,9 @@ class algs:
         plt.plot(range(0, 5000)[::spacing], self.plot_av_ts[::spacing], label='TS', color='yellow', marker='o')
         plt.plot(range(0, 5000)[::spacing], self.plot_av_cucb[::spacing], label='C-UCB', color='blue', marker='^')
         plt.plot(range(0, 5000)[::spacing], self.plot_av_cts[::spacing], label='C-TS', color='black', marker='x')
+        plt.plot(range(0, 5000)[::spacing], self.plot_av_cts[::spacing], label='CS-ETC', color='orange', marker='*')
+        plt.plot(range(0, 5000)[::spacing], self.plot_av_cts[::spacing], label='CS-UCB', color='green', marker='-')
+        plt.plot(range(0, 5000)[::spacing], self.plot_av_cts[::spacing], label='CS-TS', color='grey', marker='$')
         # Confidence bounds
         plt.fill_between(range(0, 5000)[::spacing], (self.plot_av_ucb + self.plot_std_ucb)[::spacing],
                          (self.plot_av_ucb - self.plot_std_ucb)[::spacing], alpha=0.3, facecolor='r')
@@ -436,6 +603,12 @@ class algs:
                          (self.plot_av_cucb - self.plot_std_cucb)[::spacing], alpha=0.3, facecolor='b')
         plt.fill_between(range(0, 5000)[::spacing], (self.plot_av_cts + self.plot_std_cts)[::spacing],
                          (self.plot_av_cts - self.plot_std_cts)[::spacing], alpha=0.3, facecolor='k')
+        plt.fill_between(range(0, 5000)[::spacing], (self.plot_av_csetc + self.plot_std_csetc)[::spacing],
+                         (self.plot_av_csetc - self.plot_std_csetc)[::spacing], alpha=0.3, facecolor='o')
+        plt.fill_between(range(0, 5000)[::spacing], (self.plot_av_csucb + self.plot_std_csucb)[::spacing],
+                         (self.plot_av_csucb - self.plot_std_csucb)[::spacing], alpha=0.3, facecolor='g')
+        plt.fill_between(range(0, 5000)[::spacing], (self.plot_av_csts + self.plot_std_csts)[::spacing],
+                         (self.plot_av_csts - self.plot_std_csts)[::spacing], alpha=0.3, facecolor='e')
         # Plot
         plt.legend()
         plt.grid(True, axis='y')

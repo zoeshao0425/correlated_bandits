@@ -376,7 +376,6 @@ class algs:
                 else:
                     tsc_quality_regret[t] = tsc_quality_regret[t - 1] + true_means_test[optArmReward] - true_means_test[k_t]
 
-
             # Store regret for each iteration
             avg_tsc_regret[iteration, :] = tsc_cost_regret
 
@@ -389,7 +388,9 @@ class algs:
         true_means_test = self.true_means_test
         true_costs = self.true_costs
 
-        costs_regret = np.zeros((num_iterations, T))
+        costs_regret = np.zeros(T)
+        quality_regret = np.zeros(T)
+        avg_etc_regret = np.zeros((num_iterations, T))
 
         for iteration in tqdm(range(num_iterations)):
             mu_hat = np.zeros(numArms)
@@ -398,6 +399,10 @@ class algs:
             T_i = np.zeros(numArms)
             rewards = np.zeros((numArms, tau))
             costs = np.zeros(T)
+            
+            # find optimal arm within feasible set
+            feasible_optArm = [i for i in range(numArms) if true_means_test[i] >= (1 - alpha) * true_means_test[optArmReward]]
+            optimal_cost = true_costs[min(feasible_optArm, key=lambda x: true_costs[x])]
 
             for t in range(T):
                 if t < numArms * tau:  # pure exploration phase
@@ -405,15 +410,18 @@ class algs:
                     rewards[i, int(T_i[i] % tau)] = self.generate_sample(i)
                     T_i[i] += 1
                     costs[t] = true_costs[i]
+                    if t == 0:
+                        costs_regret[t] = true_costs[i] - optimal_cost
+                    else:
+                        costs_regret[t] = costs_regret[t - 1] + true_costs[i] - optimal_cost
+
                 else:  # UCB phase
                     for i in range(numArms):
                         mu_hat[i] = np.sum(rewards[i]) / T_i[i]
                         beta = np.sqrt((2 * np.log(T)) / T_i[i])
-
                         mu_ucb[i] = min(mu_hat[i] + beta, 5)
                         mu_lcb[i] = max(mu_hat[i] - beta, 0)
-                        # mu_ucb[i] = mu_hat[i] + beta
-                        # mu_lcb[i] = mu_hat[i] - beta
+
                     m_t = np.argmax(mu_lcb)
                     feasible_set = [i for i in range(numArms) if mu_ucb[i] >= (1 - alpha) * mu_lcb[m_t]]
                     # Ensure feasible_set is not empty
@@ -423,19 +431,16 @@ class algs:
                     rewards[i, int(T_i[i] % tau)] = self.generate_sample(i)
                     T_i[i] += 1
                     costs[t] = true_costs[i]
+            
+                    if t == 0:
+                        costs_regret[t] = true_costs[i] - optimal_cost
+                    else:
+                        costs_regret[t] = costs_regret[t - 1] + true_costs[i] - optimal_cost
+            
+            # print(costs_regret)
+            avg_etc_regret[iteration, :] = costs_regret
 
-            # find optimal arm within feasible set
-            feasible_optArm = [i for i in feasible_set if true_means_test[i] >= (1 - alpha) * true_means_test[optArmReward]]
-            if feasible_optArm == []:
-                print(feasible_set)
-                print(true_means_test[optArmReward])
-                for i in feasible_set:
-                    print(true_means_test[i], (1 - alpha) * true_means_test[optArmReward])
-            optimal_cost = true_costs[min(feasible_optArm, key=lambda x: true_costs[x])]
-
-            costs_regret[iteration, :] = np.cumsum(costs - optimal_cost)
-
-        return costs_regret
+        return avg_etc_regret
     
     def CS_TS(self, num_iterations, T, alpha=0.1):
         numArms = self.numArms
@@ -444,7 +449,8 @@ class algs:
         true_means_test = self.true_means_test
         true_costs = self.true_costs
 
-        costs_regret = np.zeros((num_iterations, T))
+        costs_regret = np.zeros(T)
+        avg_ts_regret = np.zeros((num_iterations, T))
 
         for iteration in range(num_iterations):
             mu_score = np.zeros(numArms)
@@ -452,6 +458,10 @@ class algs:
             successes = np.zeros(numArms)
             failures = np.zeros(numArms)
             costs = np.zeros(T)
+            
+            # find optimal arm within feasible set
+            feasible_optArm = [i for i in range(numArms) if true_means_test[i] >= (1 - alpha) * true_means_test[optArmReward]]
+            optimal_cost = true_costs[min(feasible_optArm, key=lambda x: true_costs[x])]
 
             for t in range(T):
                 if t < numArms:  # play each arm once
@@ -461,6 +471,12 @@ class algs:
                     failures[i] += 5 - reward
                     T_i[i] += 1
                     costs[t] = true_costs[i]
+                    
+                    if t == 0:
+                        costs_regret[t] = true_costs[i] - optimal_cost
+                    else:
+                        costs_regret[t] = costs_regret[t - 1] + true_costs[i] - optimal_cost
+
                 else:
                     for i in range(numArms):
                         mu_score[i] = np.random.beta(successes[i] + 1, failures[i] + 1)
@@ -472,12 +488,13 @@ class algs:
                     failures[i] += 5 - reward
                     T_i[i] += 1
                     costs[t] = true_costs[i]
-
-            # find optimal arm within feasible set
-            feasible_optArm = [i for i in feasible_set if true_means_test[i] >= (1 - alpha) * true_means_test[optArmReward]]
-            optimal_cost = true_costs[min(feasible_optArm, key=lambda x: true_costs[x])]
-
-            costs_regret[iteration, :] = np.cumsum(costs - optimal_cost)
+                    
+                    if t == 0:
+                        costs_regret[t] = true_costs[i] - optimal_cost
+                    else:
+                        costs_regret[t] = costs_regret[t - 1] + true_costs[i] - optimal_cost
+                        
+            avg_ts_regret[iteration, :] = costs_regret
 
         return costs_regret
 
@@ -489,13 +506,18 @@ class algs:
         true_means_test = self.true_means_test
         true_costs = self.true_costs
 
-        costs_regret = np.zeros((num_iterations, T))
+        costs_regret = np.zeros(T)
+        avg_ucb_regret = np.zeros((num_iterations, T))
 
         for iteration in tqdm(range(num_iterations)):
             mu_score = np.zeros(numArms)
             T_i = np.zeros(numArms)
             rewards = np.zeros((T, numArms))
             costs = np.zeros(T)
+            
+            # find optimal arm within feasible set
+            feasible_optArm = [i for i in range(numArms) if true_means_test[i] >= (1 - alpha) * true_means_test[optArmReward]]
+            optimal_cost = true_costs[min(feasible_optArm, key=lambda x: true_costs[x])]
 
             for t in range(T):
                 if t < numArms:  # play each arm once
@@ -504,6 +526,12 @@ class algs:
                     rewards[t, i] = reward
                     T_i[i] += 1
                     costs[t] = true_costs[i]
+                    
+                    if t == 0:
+                        costs_regret[t] = true_costs[i] - optimal_cost
+                    else:
+                        costs_regret[t] = costs_regret[t - 1] + true_costs[i] - optimal_cost
+                        
                 else:
                     for i in range(numArms):
                         mu_score[i] = np.sum(rewards[:t, i]) / T_i[i]
@@ -516,22 +544,23 @@ class algs:
                     rewards[t, i] = reward
                     T_i[i] += 1
                     costs[t] = true_costs[i]
-
-            # find optimal arm within feasible set
-            feasible_optArm = [i for i in feasible_set if true_means_test[i] >= (1 - alpha) * true_means_test[optArmReward]]
-            optimal_cost = true_costs[min(feasible_optArm, key=lambda x: true_costs[x])]
-
-            costs_regret[iteration, :] = np.cumsum(costs - optimal_cost)
+                    
+                    if t == 0:
+                        costs_regret[t] = true_costs[i] - optimal_cost
+                    else:
+                        costs_regret[t] = costs_regret[t - 1] + true_costs[i] - optimal_cost
+                        
+            avg_ucb_regret[iteration, :] = costs_regret
 
         return costs_regret
 
     def run(self, num_iterations=20, T=5000):
-
+        
+        avg_csetc_regret = self.CS_ETC(num_iterations, T)
         avg_ucb_regret = self.UCB(num_iterations, T)
         avg_ts_regret = self.TS(num_iterations, T)
         avg_cucb_regret = self.C_UCB(num_iterations, T)
         avg_cts_regret = self.C_TS(num_iterations, T)
-        avg_csetc_regret = self.CS_ETC(num_iterations, T)
         avg_csucb_regret = self.CS_UCB(num_iterations, T)
         avg_csts_regret = self.CS_TS(num_iterations, T)
 

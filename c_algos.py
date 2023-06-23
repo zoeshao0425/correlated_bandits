@@ -391,7 +391,7 @@ class algs:
 
         costs_regret = np.zeros((num_iterations, T))
 
-        for iteration in range(num_iterations):
+        for iteration in tqdm(range(num_iterations)):
             mu_hat = np.zeros(numArms)
             mu_ucb = np.zeros(numArms)
             mu_lcb = np.zeros(numArms)
@@ -409,16 +409,31 @@ class algs:
                     for i in range(numArms):
                         mu_hat[i] = np.sum(rewards[i]) / T_i[i]
                         beta = np.sqrt((2 * np.log(T)) / T_i[i])
-                        mu_ucb[i] = min(mu_hat[i] + beta, 1)
+
+                        mu_ucb[i] = min(mu_hat[i] + beta, 5)
                         mu_lcb[i] = max(mu_hat[i] - beta, 0)
+                        # mu_ucb[i] = mu_hat[i] + beta
+                        # mu_lcb[i] = mu_hat[i] - beta
                     m_t = np.argmax(mu_lcb)
                     feasible_set = [i for i in range(numArms) if mu_ucb[i] >= (1 - alpha) * mu_lcb[m_t]]
+                    # Ensure feasible_set is not empty
+                    if not feasible_set:
+                        feasible_set.append(np.argmax(mu_ucb))
                     i = min(feasible_set, key=lambda x: true_costs[x])
                     rewards[i, int(T_i[i] % tau)] = self.generate_sample(i)
                     T_i[i] += 1
                     costs[t] = true_costs[i]
 
-            costs_regret[iteration, :] = np.cumsum(costs - np.min(true_costs))
+            # find optimal arm within feasible set
+            feasible_optArm = [i for i in feasible_set if true_means_test[i] >= (1 - alpha) * true_means_test[optArmReward]]
+            if feasible_optArm == []:
+                print(feasible_set)
+                print(true_means_test[optArmReward])
+                for i in feasible_set:
+                    print(true_means_test[i], (1 - alpha) * true_means_test[optArmReward])
+            optimal_cost = true_costs[min(feasible_optArm, key=lambda x: true_costs[x])]
+
+            costs_regret[iteration, :] = np.cumsum(costs - optimal_cost)
 
         return costs_regret
     
@@ -441,9 +456,9 @@ class algs:
             for t in range(T):
                 if t < numArms:  # play each arm once
                     i = t
-                    reward = self.generate_sample(i)
+                    reward = float(self.generate_sample(i).iloc[0])  # modified line
                     successes[i] += reward
-                    failures[i] += 1 - reward
+                    failures[i] += 5 - reward
                     T_i[i] += 1
                     costs[t] = true_costs[i]
                 else:
@@ -452,16 +467,21 @@ class algs:
                     m_t = np.argmax(mu_score)
                     feasible_set = [i for i in range(numArms) if mu_score[i] - (1 - alpha) * mu_score[m_t] >= 0]
                     i = min(feasible_set, key=lambda x: true_costs[x])
-                    reward = self.generate_sample(i)
+                    reward = float(self.generate_sample(i).iloc[0])  # modified line
                     successes[i] += reward
-                    failures[i] += 1 - reward
+                    failures[i] += 5 - reward
                     T_i[i] += 1
                     costs[t] = true_costs[i]
 
-            costs_regret[iteration, :] = np.cumsum(costs - np.min(true_costs))
+            # find optimal arm within feasible set
+            feasible_optArm = [i for i in feasible_set if true_means_test[i] >= (1 - alpha) * true_means_test[optArmReward]]
+            optimal_cost = true_costs[min(feasible_optArm, key=lambda x: true_costs[x])]
+
+            costs_regret[iteration, :] = np.cumsum(costs - optimal_cost)
 
         return costs_regret
-    
+
+
     def CS_UCB(self, num_iterations, T, alpha=0.1):
         numArms = self.numArms
         optArmReward = self.optArmReward
@@ -471,7 +491,7 @@ class algs:
 
         costs_regret = np.zeros((num_iterations, T))
 
-        for iteration in range(num_iterations):
+        for iteration in tqdm(range(num_iterations)):
             mu_score = np.zeros(numArms)
             T_i = np.zeros(numArms)
             rewards = np.zeros((T, numArms))
@@ -497,7 +517,11 @@ class algs:
                     T_i[i] += 1
                     costs[t] = true_costs[i]
 
-            costs_regret[iteration, :] = np.cumsum(costs - np.min(true_costs))
+            # find optimal arm within feasible set
+            feasible_optArm = [i for i in feasible_set if true_means_test[i] >= (1 - alpha) * true_means_test[optArmReward]]
+            optimal_cost = true_costs[min(feasible_optArm, key=lambda x: true_costs[x])]
+
+            costs_regret[iteration, :] = np.cumsum(costs - optimal_cost)
 
         return costs_regret
 
@@ -591,24 +615,24 @@ class algs:
         plt.plot(range(0, 5000)[::spacing], self.plot_av_ts[::spacing], label='TS', color='yellow', marker='o')
         plt.plot(range(0, 5000)[::spacing], self.plot_av_cucb[::spacing], label='C-UCB', color='blue', marker='^')
         plt.plot(range(0, 5000)[::spacing], self.plot_av_cts[::spacing], label='C-TS', color='black', marker='x')
-        plt.plot(range(0, 5000)[::spacing], self.plot_av_cts[::spacing], label='CS-ETC', color='orange', marker='*')
-        plt.plot(range(0, 5000)[::spacing], self.plot_av_cts[::spacing], label='CS-UCB', color='green', marker='-')
-        plt.plot(range(0, 5000)[::spacing], self.plot_av_cts[::spacing], label='CS-TS', color='grey', marker='$')
+        plt.plot(range(0, 5000)[::spacing], self.plot_av_csetc[::spacing], label='CS-ETC', color='orange', marker='*')
+        plt.plot(range(0, 5000)[::spacing], self.plot_av_csucb[::spacing], label='CS-UCB', color='green', marker='_')
+        plt.plot(range(0, 5000)[::spacing], self.plot_av_csts[::spacing], label='CS-TS', color='purple', marker='v')
         # Confidence bounds
         plt.fill_between(range(0, 5000)[::spacing], (self.plot_av_ucb + self.plot_std_ucb)[::spacing],
-                         (self.plot_av_ucb - self.plot_std_ucb)[::spacing], alpha=0.3, facecolor='r')
+                        (self.plot_av_ucb - self.plot_std_ucb)[::spacing], alpha=0.3, facecolor='red')
         plt.fill_between(range(0, 5000)[::spacing], (self.plot_av_ts + self.plot_std_ts)[::spacing],
-                         (self.plot_av_ts - self.plot_std_ts)[::spacing], alpha=0.3, facecolor='y')
+                        (self.plot_av_ts - self.plot_std_ts)[::spacing], alpha=0.3, facecolor='yellow')
         plt.fill_between(range(0, 5000)[::spacing], (self.plot_av_cucb + self.plot_std_cucb)[::spacing],
-                         (self.plot_av_cucb - self.plot_std_cucb)[::spacing], alpha=0.3, facecolor='b')
+                        (self.plot_av_cucb - self.plot_std_cucb)[::spacing], alpha=0.3, facecolor='blue')
         plt.fill_between(range(0, 5000)[::spacing], (self.plot_av_cts + self.plot_std_cts)[::spacing],
-                         (self.plot_av_cts - self.plot_std_cts)[::spacing], alpha=0.3, facecolor='k')
+                        (self.plot_av_cts - self.plot_std_cts)[::spacing], alpha=0.3, facecolor='black')
         plt.fill_between(range(0, 5000)[::spacing], (self.plot_av_csetc + self.plot_std_csetc)[::spacing],
-                         (self.plot_av_csetc - self.plot_std_csetc)[::spacing], alpha=0.3, facecolor='o')
+                        (self.plot_av_csetc - self.plot_std_csetc)[::spacing], alpha=0.3, facecolor='orange')
         plt.fill_between(range(0, 5000)[::spacing], (self.plot_av_csucb + self.plot_std_csucb)[::spacing],
-                         (self.plot_av_csucb - self.plot_std_csucb)[::spacing], alpha=0.3, facecolor='g')
+                        (self.plot_av_csucb - self.plot_std_csucb)[::spacing], alpha=0.3, facecolor='green')
         plt.fill_between(range(0, 5000)[::spacing], (self.plot_av_csts + self.plot_std_csts)[::spacing],
-                         (self.plot_av_csts - self.plot_std_csts)[::spacing], alpha=0.3, facecolor='e')
+                        (self.plot_av_csts - self.plot_std_csts)[::spacing], alpha=0.3, facecolor='purple')
         # Plot
         plt.legend()
         plt.grid(True, axis='y')
@@ -617,6 +641,7 @@ class algs:
         # Save
         pathlib.Path('data/plots/').mkdir(parents=False, exist_ok=True)
         plt.savefig(f'data/plots/{self.exp_name}_p{self.p:.2f}_pad{self.padval:.2f}.png')
+
 
 
 def parse_arguments():

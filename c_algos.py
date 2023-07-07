@@ -381,7 +381,7 @@ class algs:
 
         return avg_tsc_regret
     
-    def CS_ETC(self, num_iterations, T, tau=10, alpha=0.1):
+    def CS_ETC(self, num_iterations, T, tau=25, alpha=0.1):
         numArms = self.numArms
         optArmReward = self.optArmReward
         optArmCost = self.optArmCost
@@ -424,9 +424,6 @@ class algs:
 
                     m_t = np.argmax(mu_lcb)
                     feasible_set = [i for i in range(numArms) if mu_ucb[i] >= (1 - alpha) * mu_lcb[m_t]]
-                    # Ensure feasible_set is not empty
-                    if not feasible_set:
-                        feasible_set.append(np.argmax(mu_ucb))
                     i = min(feasible_set, key=lambda x: true_costs[x])
                     rewards[i, int(T_i[i] % tau)] = self.generate_sample(i)
                     T_i[i] += 1
@@ -496,7 +493,7 @@ class algs:
                         
             avg_ts_regret[iteration, :] = costs_regret
 
-        return costs_regret
+        return avg_ts_regret
 
 
     def CS_UCB(self, num_iterations, T, alpha=0.1):
@@ -552,10 +549,89 @@ class algs:
                         
             avg_ucb_regret[iteration, :] = costs_regret
 
-        return costs_regret
+        return avg_ucb_regret
+    
+    def CS_ETC_C_UCB(self, num_iterations, T, tau=25, alpha=0.1):
+        numArms = self.numArms
+        true_means_test = self.true_means_test
+        true_costs = self.true_costs
+        tables = self.tables
+        B = [5.] * numArms
+
+        costs_regret = np.zeros(T)
+        avg_regret = np.zeros((num_iterations, T))
+
+        # Initialize pseudo-reward arrays
+        empPseudoReward = np.zeros((numArms, numArms))
+        sumPseudoReward = np.zeros((numArms, numArms))
+        empPseudoReward[:, :] = np.inf
+
+        for iteration in tqdm(range(num_iterations)):
+            mu_hat = np.zeros(numArms)
+            mu_ucb = np.zeros(numArms)
+            mu_lcb = np.zeros(numArms)
+            T_i = np.zeros(numArms)
+            rewards = np.zeros((numArms, tau))
+            costs = np.zeros(T)
+            
+            for t in range(T):
+                if t < numArms * tau:  # pure exploration phase
+                    i = t % numArms
+                    reward = self.generate_sample(i)
+                    rewards[i, int(T_i[i] % tau)] = float(reward.iloc[0])
+
+                    # Update pseudo-rewards
+                    pseudoRewards = tables[i][reward - 1, :]
+                    sumPseudoReward[:, i] = sumPseudoReward[:, i] + pseudoRewards
+                    empPseudoReward[:, i] = np.divide(sumPseudoReward[:, i], float(T_i[i] + 1))
+
+                    # Update diagonal elements of pseudo-rewards
+                    empPseudoReward[np.arange(numArms), np.arange(numArms)] = mu_hat
+                    
+                    T_i[i] += 1
+                    costs[t] = true_costs[i]
+
+                else:  # UCB phase
+                    for i in range(numArms):
+                        mu_hat[i] = np.sum(rewards[i]) / T_i[i]
+                        beta = np.sqrt((2 * np.log(T)) / T_i[i])
+                        mu_ucb[i] = min(mu_hat[i] + beta, 5)
+                        mu_lcb[i] = max(mu_hat[i] - beta, 0)
+                    
+                    m_t = np.argmax(mu_lcb)
+
+                    # Incorporate pseudo-reward
+                    min_phi = np.min(empPseudoReward[:, m_t])
+                    feasible_set = [i for i in range(numArms) if mu_ucb[i] >= (1 - alpha) * mu_lcb[m_t] and empPseudoReward[i, m_t] >= min_phi]
+
+                    i = min(feasible_set, key=lambda x: true_costs[x])
+                    
+                    reward = self.generate_sample(i)
+                    rewards[i, int(T_i[i] % tau)] = float(reward.iloc[0])
+
+                    # Update pseudo-rewards
+                    pseudoRewards = tables[i][reward - 1, :]
+                    sumPseudoReward[:, i] = sumPseudoReward[:, i] + pseudoRewards
+                    empPseudoReward[:, i] = np.divide(sumPseudoReward[:, i], float(T_i[i] + 1))
+
+                    # Update diagonal elements of pseudo-rewards
+                    empPseudoReward[np.arange(numArms), np.arange(numArms)] = mu_hat
+                    
+                    T_i[i] += 1
+                    costs[t] = true_costs[i]
+
+                # Calculate regret
+                optimal_cost = true_costs[min(range(numArms), key=lambda x: true_costs[x])]
+                costs_regret[t] = np.sum(costs[:t+1]) - t * optimal_cost
+
+            avg_regret[iteration, :] = costs_regret
+
+        return avg_regret
+
 
     def run(self, num_iterations=20, T=5000):
         
+        avg_csetc_cucb_regrest = self.CS_ETC_C_UCB(num_iterations, T)
         avg_csetc_regret = self.CS_ETC(num_iterations, T)
         avg_ucb_regret = self.UCB(num_iterations, T)
         avg_ts_regret = self.TS(num_iterations, T)
@@ -572,6 +648,7 @@ class algs:
         self.plot_av_csetc = np.mean(avg_csetc_regret, axis=0)
         self.plot_av_csucb = np.mean(avg_csucb_regret, axis=0)
         self.plot_av_csts = np.mean(avg_csts_regret, axis=0)
+        self.plot_av_csetc_cucb = np.mean(avg_csetc_cucb_regrest, axis=0)
 
         # std dev over runs
         self.plot_std_ucb = np.sqrt(np.var(avg_ucb_regret, axis=0))
@@ -581,6 +658,7 @@ class algs:
         self.plot_std_csetc = np.sqrt(np.var(avg_csetc_regret, axis=0))
         self.plot_std_csucb = np.sqrt(np.var(avg_csucb_regret, axis=0))
         self.plot_std_csts = np.sqrt(np.var(avg_csts_regret, axis=0))
+        self.plot_std_csetc_cucb = np.sqrt(np.var(avg_csetc_cucb_regrest, axis=0))
 
         self.save_data()
 
@@ -647,6 +725,7 @@ class algs:
         plt.plot(range(0, 5000)[::spacing], self.plot_av_csetc[::spacing], label='CS-ETC', color='orange', marker='*')
         plt.plot(range(0, 5000)[::spacing], self.plot_av_csucb[::spacing], label='CS-UCB', color='green', marker='_')
         plt.plot(range(0, 5000)[::spacing], self.plot_av_csts[::spacing], label='CS-TS', color='purple', marker='v')
+        plt.plot(range(0, 5000)[::spacing], self.plot_av_csetc_cucb[::spacing], label='CS-ETC-C-UCB', color='magenta', marker='s')
         # Confidence bounds
         plt.fill_between(range(0, 5000)[::spacing], (self.plot_av_ucb + self.plot_std_ucb)[::spacing],
                         (self.plot_av_ucb - self.plot_std_ucb)[::spacing], alpha=0.3, facecolor='red')
@@ -662,6 +741,8 @@ class algs:
                         (self.plot_av_csucb - self.plot_std_csucb)[::spacing], alpha=0.3, facecolor='green')
         plt.fill_between(range(0, 5000)[::spacing], (self.plot_av_csts + self.plot_std_csts)[::spacing],
                         (self.plot_av_csts - self.plot_std_csts)[::spacing], alpha=0.3, facecolor='purple')
+        plt.fill_between(range(0, 5000)[::spacing], (self.plot_av_csetc_cucb + self.plot_std_csetc_cucb)[::spacing],
+                        (self.plot_av_csetc_cucb - self.plot_std_csetc_cucb)[::spacing], alpha=0.3, facecolor='magenta')
         # Plot
         plt.legend()
         plt.grid(True, axis='y')
